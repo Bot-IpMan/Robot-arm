@@ -1,0 +1,94 @@
+[
+    {
+        "id": "flow1",
+        "type": "tab",
+        "label": "TX12 Control",
+        "disabled": false,
+        "info": "Flow to read TX12 joystick and control Arduino via /dev/ttyACM0"
+    },
+    {
+        "id": "inject1",
+        "type": "inject",
+        "z": "flow1",
+        "name": "метка времени",
+        "props": [{"p": "payload"}],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "wires": [["python1"]]
+    },
+    {
+        "id": "python1",
+        "type": "python3-function",
+        "z": "flow1",
+        "name": "python3",
+        "pyfile": "read_gamepad.py",
+        "wires": [["function4"]]
+    },
+    {
+        "id": "function4",
+        "type": "function",
+        "z": "flow1",
+        "name": "function 4",
+        "func": "// Обробка JSON даних з Python скрипта\nvar data = msg.payload.toString().trim();\n\ntry {\n    // Парсинг JSON\n    var joystickData = JSON.parse(data);\n    \n    if (joystickData.axes && joystickData.buttons) {\n        msg.payload = {\n            axes: joystickData.axes,\n            buttons: joystickData.buttons\n        };\n        return msg;\n    }\n} catch (e) {\n    // Якщо не JSON, ігноруємо\n    node.warn(\"Не можу парсити JSON: \" + data);\n}\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "wires": [["function3"]]
+    },
+    {
+        "id": "function3",
+        "type": "function",
+        "z": "flow1",
+        "name": "function 3",
+        "func": "// Покращена обробка даних з TX12\nif (msg.payload && msg.payload.axes && msg.payload.buttons) {\n    var commands = [];\n    var axes = msg.payload.axes;\n    var buttons = msg.payload.buttons;\n    \n    // Константи для налаштування\n    var DEAD_ZONE = 3000;  // Мертва зона для осей\n    var SERVO_MIN = 0;     // Мінімальний кут сервоприводу\n    var SERVO_MAX = 180;   // Максимальний кут сервоприводу\n    \n    // Функція для перетворення значення осі в кут сервоприводу\n    function axisToServo(axisValue) {\n        // Обмежуємо значення\n        axisValue = Math.max(-32768, Math.min(32767, axisValue));\n        \n        // Перетворюємо в діапазон 0-180\n        var angle = Math.round(((axisValue + 32768) / 65535) * (SERVO_MAX - SERVO_MIN) + SERVO_MIN);\n        \n        // Обмежуємо результат\n        return Math.max(SERVO_MIN, Math.min(SERVO_MAX, angle));\n    }\n    \n    // Збереження попередніх значень в контексті\n    var lastValues = flow.get('lastServoValues') || [90, 90, 90, 90];\n    var hasChanged = false;\n    \n    // Обробка осей з мертвою зоною та фільтрацією змін\n    for (var i = 0; i < 4; i++) {\n        if (Math.abs(axes[i]) > DEAD_ZONE) {\n            var newAngle = axisToServo(axes[i]);\n            \n            // Перевіряємо чи змінилося значення більше ніж на 2 градуси\n            if (Math.abs(newAngle - lastValues[i]) > 2) {\n                commands.push(\"S\" + (i + 1) + \":\" + newAngle);\n                lastValues[i] = newAngle;\n                hasChanged = true;\n            }\n        }\n    }\n    \n    // Зберігаємо нові значення\n    if (hasChanged) {\n        flow.set('lastServoValues', lastValues);\n    }\n    \n    // Обробка кнопок (з антибрязканням)\n    var lastButtons = flow.get('lastButtons') || [0, 0, 0, 0];\n    \n    for (var i = 0; i < 4; i++) {\n        if (buttons[i] === 1 && lastButtons[i] === 0) {\n            // Кнопка щойно натиснута\n            switch (i) {\n                case 0:\n                    commands.push(\"GRIP:OPEN\");\n                    break;\n                case 1:\n                    commands.push(\"GRIP:CLOSE\");\n                    break;\n                case 2:\n                    commands.push(\"HOME\");\n                    break;\n                case 3:\n                    commands.push(\"READY\");\n                    break;\n            }\n        }\n    }\n    \n    // Зберігаємо стан кнопок\n    flow.set('lastButtons', buttons.slice(0, 4));\n    \n    // Відправляємо команди якщо є зміни\n    if (commands.length > 0) {\n        msg.payload = commands.join(\";\") + \"\\n\";\n        \n        // Додаємо інформацію для налагодження\n        msg.debug = {\n            axes: axes,\n            buttons: buttons,\n            commands: commands,\n            timestamp: new Date().toISOString()\n        };\n        \n        return msg;\n    }\n}\n\n// Якщо немає змін, не відправляємо нічого\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "wires": [["debug2","serial1"]]
+    },
+    {
+        "id": "debug2",
+        "type": "debug",
+        "z": "flow1",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "debug",
+        "targetType": "msg",
+        "wires": []
+    },
+    {
+        "id": "serial1",
+        "type": "serial out",
+        "z": "flow1",
+        "name": "/dev/ttyACM0",
+        "serial": "serialPort1",
+        "wires": []
+    },
+    {
+        "id": "serialPort1",
+        "type": "serial-port",
+        "serialport": "/dev/ttyACM0",
+        "serialbaud": "115200",
+        "databits": "8",
+        "parity": "none",
+        "stopbits": "1",
+        "waitfor": "",
+        "newline": "\n",
+        "bin": "false",
+        "out": "time",
+        "addchar": false,
+        "responsetimeout": "10000"
+    }
+]
