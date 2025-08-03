@@ -9,8 +9,6 @@ It is designed to be called from Node-RED using a python node. When the device
 cannot be accessed, an error is printed to stderr and the script exits with
 status 1 so that Node-RED can report the failure (rc:1).
 """
-from __future__ import annotations
-
 import json
 import os
 import select
@@ -60,9 +58,10 @@ def main() -> int:
     except Exception as exc:  # pragma: no cover - unexpected errors
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1
-    print(json.dumps(state))
+    print(json.dumps(state), flush=True)
     return 0
 
 
 if __name__ == "__main__":
+    sys.exit(main())
     sys.exit(main())
