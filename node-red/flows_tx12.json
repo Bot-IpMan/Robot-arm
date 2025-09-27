@@ -11,15 +11,23 @@
         "type": "inject",
         "z": "flow1",
         "name": "метка времени",
-        "props": [{"p": "payload"}],
-        "repeat": "",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "0.2",
         "crontab": "",
-        "once": false,
+        "once": true,
         "onceDelay": 0.1,
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "wires": [["python1"]]
+        "wires": [
+            [
+                "python1"
+            ]
+        ]
     },
     {
         "id": "python1",
@@ -27,7 +35,11 @@
         "z": "flow1",
         "name": "python3",
         "pyfile": "read_gamepad.py",
-        "wires": [["function4"]]
+        "wires": [
+            [
+                "function4"
+            ]
+        ]
     },
     {
         "id": "function4",
@@ -40,7 +52,11 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "wires": [["function3"]]
+        "wires": [
+            [
+                "function3"
+            ]
+        ]
     },
     {
         "id": "function3",
@@ -53,7 +69,12 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "wires": [["debug2","serial1"]]
+        "wires": [
+            [
+                "debug2",
+                "serial1"
+            ]
+        ]
     },
     {
         "id": "debug2",
