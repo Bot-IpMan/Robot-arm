@@ -23,6 +23,14 @@ DEVICE = os.environ.get("TX12_DEVICE", "/dev/input/js0")
 STATE_PATH = os.environ.get("TX12_STATE_PATH", "/tmp/read_gamepad_state.json")
 LOCK_PATH = os.environ.get("TX12_LOCK_PATH", "/tmp/read_gamepad.lock")
 
+# Timing parameters (seconds).  They can be overridden from the environment to
+# better align the helper with the Node-RED inject interval.
+READ_WINDOW = max(0.0, float(os.environ.get("TX12_READ_WINDOW", "0.75")))
+EVENT_EXTENSION = max(0.0, float(os.environ.get("TX12_EVENT_EXTENSION", "0.15")))
+SELECT_TIMEOUT = max(0.0, float(os.environ.get("TX12_SELECT_TIMEOUT", "0.05")))
+
+DEBUG = os.environ.get("TX12_DEBUG", "0").lower() in {"1", "true", "yes", "on"}
+
 JS_EVENT_FORMAT = "IhBB"  # time, value, type, number
 JS_EVENT_SIZE = struct.calcsize(JS_EVENT_FORMAT)
 JS_EVENT_BUTTON = 0x01
@@ -66,6 +74,11 @@ def _save_state(axes: List[int], buttons: List[int]) -> None:
     os.replace(tmp_path, STATE_PATH)
 
 
+def _debug(msg: str) -> None:
+    if DEBUG:
+        print(msg, file=sys.stderr, flush=True)
+
+
 def read_gamepad() -> Dict[str, List[int]]:
     with open(LOCK_PATH, "w", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -73,15 +86,22 @@ def read_gamepad() -> Dict[str, List[int]]:
         axes, buttons = _load_previous_state()
 
         with open(DEVICE, "rb") as jsdev:
-            end_time = time.monotonic() + 0.5
+            start_time = time.monotonic()
+            end_time = start_time + READ_WINDOW
             got_event = False
+            event_count = 0
+
+            _debug(
+                f"read_gamepad: start window={READ_WINDOW}s select={SELECT_TIMEOUT}s "
+                f"extend={EVENT_EXTENSION}s"
+            )
 
             while True:
                 now = time.monotonic()
                 if now >= end_time:
                     break
 
-                timeout = min(0.05, max(0.0, end_time - now))
+                timeout = min(SELECT_TIMEOUT, max(0.0, end_time - now))
                 r, _, _ = select.select([jsdev], [], [], timeout)
                 if not r:
                     continue
@@ -103,8 +123,15 @@ def read_gamepad() -> Dict[str, List[int]]:
                     break
 
                 got_event = True
+                event_count += 1
                 if got_event:
-                    end_time = time.monotonic() + 0.1
+                    end_time = time.monotonic() + EVENT_EXTENSION
+
+            duration = time.monotonic() - start_time
+            _debug(
+                "read_gamepad: events=%d duration=%.3fs axes=%s buttons=%s"
+                % (event_count, duration, axes, buttons)
+            )
 
         _save_state(axes, buttons)
 
