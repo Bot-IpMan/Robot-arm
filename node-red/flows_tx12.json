@@ -16,7 +16,7 @@
                 "p": "payload"
             }
         ],
-        "repeat": "0.2",
+        "repeat": "0.5",
         "crontab": "",
         "once": true,
         "onceDelay": 0.1,
