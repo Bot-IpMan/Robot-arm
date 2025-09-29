@@ -33,11 +33,11 @@ def read_gamepad() -> Dict[str, List[int]]:
     buttons = [0] * BUTTON_COUNT
 
     with open(DEVICE, "rb") as jsdev:
-        # collect events for a short period (100 ms)
+        # collect events for a short period (~1 s total)
         for _ in range(20):
             r, _, _ = select.select([jsdev], [], [], 0.05)
             if not r:
-                break
+                continue
             data = jsdev.read(JS_EVENT_SIZE)
             if not data:
                 break
