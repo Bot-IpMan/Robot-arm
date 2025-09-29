@@ -14,9 +14,14 @@ import os
 import select
 import struct
 import sys
-from typing import Dict, List
+import time
+from typing import Dict, List, Tuple
+
+import fcntl
 
 DEVICE = os.environ.get("TX12_DEVICE", "/dev/input/js0")
+STATE_PATH = os.environ.get("TX12_STATE_PATH", "/tmp/read_gamepad_state.json")
+LOCK_PATH = os.environ.get("TX12_LOCK_PATH", "/tmp/read_gamepad.lock")
 
 JS_EVENT_FORMAT = "IhBB"  # time, value, type, number
 JS_EVENT_SIZE = struct.calcsize(JS_EVENT_FORMAT)
@@ -28,24 +33,81 @@ AXES_COUNT = 4
 BUTTON_COUNT = 4
 
 
-def read_gamepad() -> Dict[str, List[int]]:
-    axes = [0] * AXES_COUNT
-    buttons = [0] * BUTTON_COUNT
+def _normalise(values: List[int], count: int) -> List[int]:
+    cleaned: List[int] = []
+    for value in values[:count]:
+        try:
+            cleaned.append(int(value))
+        except (TypeError, ValueError):
+            cleaned.append(0)
+    if len(cleaned) < count:
+        cleaned.extend([0] * (count - len(cleaned)))
+    return cleaned
 
-    with open(DEVICE, "rb") as jsdev:
-        # collect events for a short period (~1 s total)
-        for _ in range(20):
-            r, _, _ = select.select([jsdev], [], [], 0.05)
-            if not r:
-                continue
-            data = jsdev.read(JS_EVENT_SIZE)
-            if not data:
-                break
-            _time, value, ev_type, number = struct.unpack(JS_EVENT_FORMAT, data)
-            if ev_type & JS_EVENT_AXIS and number < AXES_COUNT:
-                axes[number] = value
-            elif ev_type & JS_EVENT_BUTTON and number < BUTTON_COUNT:
-                buttons[number] = value
+
+def _load_previous_state() -> Tuple[List[int], List[int]]:
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as state_file:
+            state = json.load(state_file)
+    except FileNotFoundError:
+        return [0] * AXES_COUNT, [0] * BUTTON_COUNT
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return [0] * AXES_COUNT, [0] * BUTTON_COUNT
+
+    axes = state.get("axes", []) if isinstance(state, dict) else []
+    buttons = state.get("buttons", []) if isinstance(state, dict) else []
+    return _normalise(axes, AXES_COUNT), _normalise(buttons, BUTTON_COUNT)
+
+
+def _save_state(axes: List[int], buttons: List[int]) -> None:
+    tmp_path = f"{STATE_PATH}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as state_file:
+        json.dump({"axes": axes, "buttons": buttons}, state_file)
+    os.replace(tmp_path, STATE_PATH)
+
+
+def read_gamepad() -> Dict[str, List[int]]:
+    with open(LOCK_PATH, "w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+
+        axes, buttons = _load_previous_state()
+
+        with open(DEVICE, "rb") as jsdev:
+            end_time = time.monotonic() + 0.5
+            got_event = False
+
+            while True:
+                now = time.monotonic()
+                if now >= end_time:
+                    break
+
+                timeout = min(0.05, max(0.0, end_time - now))
+                r, _, _ = select.select([jsdev], [], [], timeout)
+                if not r:
+                    continue
+
+                while True:
+                    data = jsdev.read(JS_EVENT_SIZE)
+                    if not data:
+                        break
+
+                    _time, value, ev_type, number = struct.unpack(JS_EVENT_FORMAT, data)
+                    if ev_type & JS_EVENT_AXIS and number < AXES_COUNT:
+                        axes[number] = value
+                    elif ev_type & JS_EVENT_BUTTON and number < BUTTON_COUNT:
+                        buttons[number] = value
+
+                    # Drain any immediately available events before returning
+                    if select.select([jsdev], [], [], 0)[0]:
+                        continue
+                    break
+
+                got_event = True
+                if got_event:
+                    end_time = time.monotonic() + 0.1
+
+        _save_state(axes, buttons)
+
     return {"axes": axes, "buttons": buttons}
 
 
