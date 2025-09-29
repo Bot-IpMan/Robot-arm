@@ -79,7 +79,16 @@ def _debug(msg: str) -> None:
         print(msg, file=sys.stderr, flush=True)
 
 
+def _ensure_parent_dir(path: str) -> None:
+    parent = os.path.dirname(path)
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+
+
 def read_gamepad() -> Dict[str, List[int]]:
+    _ensure_parent_dir(STATE_PATH)
+    _ensure_parent_dir(LOCK_PATH)
+
     with open(LOCK_PATH, "w", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
 

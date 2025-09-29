@@ -122,6 +122,10 @@ inside Node-RED, double-check the following points:
   `TX12_READ_WINDOW=1.2` to give the controller more time to send its
   first event or lower the values to tighten the response time once the
   system is stable.
+- **Customise helper paths.** If you change `TX12_DEVICE`,
+  `TX12_STATE_PATH` or `TX12_LOCK_PATH` to store data outside `/tmp`, the
+  script now creates any missing parent directories automatically before
+  opening the files, which avoids crashes due to missing folders.
 - **Enable debug logging.** Set `TX12_DEBUG=1` on the Python node to log
   how many events were captured during each poll along with the final
   axis/button state. The messages appear in the Node-RED log and make it
