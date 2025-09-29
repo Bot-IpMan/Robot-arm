@@ -62,6 +62,42 @@ The sketch listens for newline‑terminated commands such as:
 3. Run Node-RED (`node-red` command or system service)
 4. Move sticks or press buttons – the robotic arm should respond
 
+### Verify joystick detection
+
+If the joystick is not reacting inside Node-RED, first confirm that Linux
+recognises it as an input device. The TX12 should expose a joystick at
+`/dev/input/js0` with the friendly name “OpenTX Radiomaster TX12
+Joystick”. The following commands help to confirm that state:
+
+```bash
+grep -i "tx12" /proc/bus/input/devices
+ls -l /dev/input/js0
+```
+
+The first command should list a block similar to:
+
+```
+N: Name="OpenTX Radiomaster TX12 Joystick"
+H: Handlers=js0 eventX
+```
+
+The second command should show the character device with read/write
+permissions (e.g. `crw-rw-rw-`), confirming that the `joydev` kernel
+module has created `/dev/input/js0` and that it is readable by the
+Node-RED service. If the joystick appears under a different device file
+you can override the default used by `read_gamepad.py` via the
+`TX12_DEVICE` environment variable.
+
+### Verify Node-RED environment
+
+Ensure the Node-RED user directory contains `read_gamepad.py`, marked as
+executable (`chmod +x`). The flow expects a Python integration node such
+as [`node-red-contrib-python3-function`](https://flows.nodered.org/node/node-red-contrib-python3-function)
+or [`node-red-node-python`](https://flows.nodered.org/node/node-red-node-python)
+to spawn the helper script. When Node-RED starts, check the logs for a
+message indicating that the Python node launched successfully and that it
+is reading from the expected device path.
+
 ## Testing
 
 After any changes run the following checks from the repository root:
