@@ -115,16 +115,20 @@ Python helper independently to narrow down the fault:
 If `read_gamepad.py` works only sporadically or reports only zeros
 inside Node-RED, double-check the following points:
 
-- **Polling window too short.** By default the helper script loops only
-  twenty times and stops early if `read()` returns no data. When the
-  joystick does not emit events immediately, the script can exit before
-  the first movement is captured. Remove the `if not r: break` guard or
-  increase the timeout so that each run waits long enough for input.
-  Because each invocation can now take close to one second, slow down
-  the Node-RED inject interval (e.g. trigger every 0.5–1 s) to avoid
-  overlapping processes.
+- **Adjust the sampling window.** The helper now waits up to 0.75 s for
+  input events and extends the window by 0.15 s after each event. These
+  values can be tuned via the `TX12_READ_WINDOW`, `TX12_EVENT_EXTENSION`
+  and `TX12_SELECT_TIMEOUT` environment variables, e.g. set
+  `TX12_READ_WINDOW=1.2` to give the controller more time to send its
+  first event or lower the values to tighten the response time once the
+  system is stable.
+- **Enable debug logging.** Set `TX12_DEBUG=1` on the Python node to log
+  how many events were captured during each poll along with the final
+  axis/button state. The messages appear in the Node-RED log and make it
+  easy to see whether the script captured only zeros or whether non-zero
+  data is lost in later flow nodes.
 - **Inject node runs too frequently.** When the inject node fires every
-  0.2 s but the Python script needs up to a second to finish, multiple
+  0.2 s but the Python script needs close to a second to finish, multiple
   instances overlap and compete for the joystick device. Use a longer
   inject interval or redesign the script as a long-running loop that
   keeps the device open while publishing results back to Node-RED.
