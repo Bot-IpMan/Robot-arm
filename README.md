@@ -110,6 +110,39 @@ Python helper independently to narrow down the fault:
    3000. Make sure that any test movement exceeds this threshold;
    otherwise, the flow intentionally ignores the change.
 
+### Common causes for empty joystick readings
+
+If `read_gamepad.py` works only sporadically or reports only zeros
+inside Node-RED, double-check the following points:
+
+- **Polling window too short.** By default the helper script loops only
+  twenty times and stops early if `read()` returns no data. When the
+  joystick does not emit events immediately, the script can exit before
+  the first movement is captured. Remove the `if not r: break` guard or
+  increase the timeout so that each run waits long enough for input.
+  Because each invocation can now take close to one second, slow down
+  the Node-RED inject interval (e.g. trigger every 0.5–1 s) to avoid
+  overlapping processes.
+- **Inject node runs too frequently.** When the inject node fires every
+  0.2 s but the Python script needs up to a second to finish, multiple
+  instances overlap and compete for the joystick device. Use a longer
+  inject interval or redesign the script as a long-running loop that
+  keeps the device open while publishing results back to Node-RED.
+- **Device permissions.** On most systems `/dev/input/js0` is
+  world-readable (`0666`). If your Node-RED service runs under a
+  restricted account, ensure it still has access either by adding the
+  user to the `input` group or by adjusting udev rules.
+- **Python environment.** Confirm that Node-RED calls the expected
+  Python interpreter and that `read_gamepad.py` resides inside the
+  Node-RED user directory. From a shell, run the script manually using
+  the same path Node-RED uses to rule out path or virtual environment
+  issues.
+
+When in doubt, detach the script from Node-RED entirely and run it in a
+loop from the terminal while moving the sticks. Once you see non-zero
+values there, reconnect it to the flow and verify that the serial node
+forwards the generated commands to the Arduino.
+
 ### Verify Node-RED environment
 
 Ensure the Node-RED user directory contains `read_gamepad.py`, marked as
