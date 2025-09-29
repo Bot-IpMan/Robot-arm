@@ -88,6 +88,28 @@ Node-RED service. If the joystick appears under a different device file
 you can override the default used by `read_gamepad.py` via the
 `TX12_DEVICE` environment variable.
 
+### Isolate joystick and helper script issues
+
+If Node-RED still receives only zero values, test the joystick and the
+Python helper independently to narrow down the fault:
+
+1. **Exercise the kernel driver.** Run `jstest /dev/input/js0` (from the
+   `joystick` package) or `evtest /dev/input/js0` and move both sticks.
+   Axis and button values should change in the terminal. If they remain
+   at zero, the problem lies with the joystick hardware, USB cable, or
+   kernel drivers rather than with Node-RED.
+2. **Run the helper directly.** Execute `python3 node-red/read_gamepad.py`
+   in a terminal and move the sticks while it is running. The script
+   prints JSON snapshots such as `{"axes": {...}, "buttons": {...}}`.
+   If everything is wired correctly the axis values should briefly
+   deviate from zero. When testing, begin with a short pause and then
+   move the sticks so that at least one input event is captured before
+   the script exits.
+3. **Mind the dead zone.** The `function 3` node in `flows_tx12.json`
+   filters out joystick movements whose absolute axis value is below
+   3000. Make sure that any test movement exceeds this threshold;
+   otherwise, the flow intentionally ignores the change.
+
 ### Verify Node-RED environment
 
 Ensure the Node-RED user directory contains `read_gamepad.py`, marked as
