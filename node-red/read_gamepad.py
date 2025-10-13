@@ -3,11 +3,14 @@
 
 The script reads all available events from the joystick device within a short
 interval and prints a JSON object of the form:
-    {"axes": [...], "buttons": [...]}.
+    {"axes": [...], "buttons": [...]}. 
 
 It is designed to be called from Node-RED using a python node. When the device
 cannot be accessed, an error is printed to stderr and the script exits with
 status 1 so that Node-RED can report the failure (rc:1).
+To avoid hammering the joystick device when Node-RED triggers the helper very
+frequently, a small refresh interval is enforced; calls within that window are
+served from the cached state written to ``TX12_STATE_PATH``.
 """
 import json
 import os
@@ -28,6 +31,10 @@ LOCK_PATH = os.environ.get("TX12_LOCK_PATH", "/tmp/read_gamepad.lock")
 READ_WINDOW = max(0.0, float(os.environ.get("TX12_READ_WINDOW", "0.75")))
 EVENT_EXTENSION = max(0.0, float(os.environ.get("TX12_EVENT_EXTENSION", "0.15")))
 SELECT_TIMEOUT = max(0.0, float(os.environ.get("TX12_SELECT_TIMEOUT", "0.05")))
+# Throttle full reads when Node-RED invokes the helper too frequently.
+MIN_REFRESH_INTERVAL = max(
+    0.0, float(os.environ.get("TX12_MIN_REFRESH_INTERVAL", "0.2"))
+)
 
 DEBUG = os.environ.get("TX12_DEBUG", "0").lower() in {"1", "true", "yes", "on"}
 
@@ -53,24 +60,30 @@ def _normalise(values: List[int], count: int) -> List[int]:
     return cleaned
 
 
-def _load_previous_state() -> Tuple[List[int], List[int]]:
+def _load_previous_state() -> Tuple[List[int], List[int], float]:
     try:
         with open(STATE_PATH, "r", encoding="utf-8") as state_file:
             state = json.load(state_file)
     except FileNotFoundError:
-        return [0] * AXES_COUNT, [0] * BUTTON_COUNT
+        return [0] * AXES_COUNT, [0] * BUTTON_COUNT, 0.0
     except (json.JSONDecodeError, TypeError, ValueError):
-        return [0] * AXES_COUNT, [0] * BUTTON_COUNT
+        return [0] * AXES_COUNT, [0] * BUTTON_COUNT, 0.0
 
     axes = state.get("axes", []) if isinstance(state, dict) else []
     buttons = state.get("buttons", []) if isinstance(state, dict) else []
-    return _normalise(axes, AXES_COUNT), _normalise(buttons, BUTTON_COUNT)
+    timestamp = state.get("timestamp", 0.0) if isinstance(state, dict) else 0.0
+    try:
+        last_read = float(timestamp)
+    except (TypeError, ValueError):
+        last_read = 0.0
+
+    return _normalise(axes, AXES_COUNT), _normalise(buttons, BUTTON_COUNT), last_read
 
 
-def _save_state(axes: List[int], buttons: List[int]) -> None:
+def _save_state(axes: List[int], buttons: List[int], timestamp: float) -> None:
     tmp_path = f"{STATE_PATH}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as state_file:
-        json.dump({"axes": axes, "buttons": buttons}, state_file)
+        json.dump({"axes": axes, "buttons": buttons, "timestamp": timestamp}, state_file)
     os.replace(tmp_path, STATE_PATH)
 
 
@@ -92,7 +105,15 @@ def read_gamepad() -> Dict[str, List[int]]:
     with open(LOCK_PATH, "w", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
 
-        axes, buttons = _load_previous_state()
+        axes, buttons, last_read_at = _load_previous_state()
+        now = time.time()
+
+        if MIN_REFRESH_INTERVAL > 0 and now - last_read_at < MIN_REFRESH_INTERVAL:
+            _debug(
+                "read_gamepad: skip refresh (%.3fs < %.3fs)"
+                % (now - last_read_at, MIN_REFRESH_INTERVAL)
+            )
+            return {"axes": axes, "buttons": buttons}
 
         with open(DEVICE, "rb") as jsdev:
             start_time = time.monotonic()
@@ -142,7 +163,7 @@ def read_gamepad() -> Dict[str, List[int]]:
                 % (event_count, duration, axes, buttons)
             )
 
-        _save_state(axes, buttons)
+        _save_state(axes, buttons, time.time())
 
     return {"axes": axes, "buttons": buttons}
 
