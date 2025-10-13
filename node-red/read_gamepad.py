@@ -90,7 +90,12 @@ def read_gamepad() -> Dict[str, List[int]]:
     _ensure_parent_dir(LOCK_PATH)
 
     with open(LOCK_PATH, "w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            _debug("read_gamepad: another instance is active, reusing cached state")
+            axes, buttons = _load_previous_state()
+            return {"axes": axes, "buttons": buttons}
 
         axes, buttons = _load_previous_state()
 
