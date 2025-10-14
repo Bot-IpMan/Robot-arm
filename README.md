@@ -115,13 +115,13 @@ Python helper independently to narrow down the fault:
 If `read_gamepad.py` works only sporadically or reports only zeros
 inside Node-RED, double-check the following points:
 
-- **Adjust the sampling window.** The helper now waits up to 0.75 s for
-  input events and extends the window by 0.15 s after each event. These
-  values can be tuned via the `TX12_READ_WINDOW`, `TX12_EVENT_EXTENSION`
-  and `TX12_SELECT_TIMEOUT` environment variables, e.g. set
-  `TX12_READ_WINDOW=1.2` to give the controller more time to send its
-  first event or lower the values to tighten the response time once the
-  system is stable.
+- **Adjust the sampling window.** By default the helper keeps the
+  joystick open for up to 0.20 s and extends the window by 0.05 s after
+  each burst of events. These values can be tuned via the
+  `TX12_READ_WINDOW`, `TX12_EVENT_EXTENSION` and `TX12_SELECT_TIMEOUT`
+  environment variables, e.g. set `TX12_READ_WINDOW=0.5` to give the
+  controller more time to send its first event or lower the values to
+  tighten the response time once the system is stable.
 - **Customise helper paths.** If you change `TX12_DEVICE`,
   `TX12_STATE_PATH` or `TX12_LOCK_PATH` to store data outside `/tmp`, the
   script now creates any missing parent directories automatically before
@@ -136,6 +136,11 @@ inside Node-RED, double-check the following points:
   instances overlap and compete for the joystick device. Use a longer
   inject interval or redesign the script as a long-running loop that
   keeps the device open while publishing results back to Node-RED.
+- **Let the cache do its job.** Consecutive calls within
+  `TX12_MIN_REFRESH_INTERVAL` (default 0.10 s) reuse the most recent
+  reading from `/tmp/read_gamepad_state.json` instead of touching the
+  joystick again. If you trigger the helper faster than this interval,
+  lower the environment variable or, preferably, slow down the flow.
 - **Device permissions.** On most systems `/dev/input/js0` is
   world-readable (`0666`). If your Node-RED service runs under a
   restricted account, ensure it still has access either by adding the

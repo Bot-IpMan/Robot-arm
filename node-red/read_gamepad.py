@@ -26,15 +26,30 @@ DEVICE = os.environ.get("TX12_DEVICE", "/dev/input/js0")
 STATE_PATH = os.environ.get("TX12_STATE_PATH", "/tmp/read_gamepad_state.json")
 LOCK_PATH = os.environ.get("TX12_LOCK_PATH", "/tmp/read_gamepad.lock")
 
+
+def _env_float(name: str, default: float) -> float:
+    """Return a non-negative float from the environment."""
+
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return max(0.0, default)
+
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        value = default
+    return max(0.0, value)
+
+
 # Timing parameters (seconds).  They can be overridden from the environment to
 # better align the helper with the Node-RED inject interval.
-READ_WINDOW = max(0.0, float(os.environ.get("TX12_READ_WINDOW", "0.75")))
-EVENT_EXTENSION = max(0.0, float(os.environ.get("TX12_EVENT_EXTENSION", "0.15")))
-SELECT_TIMEOUT = max(0.0, float(os.environ.get("TX12_SELECT_TIMEOUT", "0.05")))
+# The defaults favour shorter sampling windows so that a frequent inject node
+# does not keep multiple helper processes alive simultaneously.
+READ_WINDOW = _env_float("TX12_READ_WINDOW", 0.20)
+EVENT_EXTENSION = _env_float("TX12_EVENT_EXTENSION", 0.05)
+SELECT_TIMEOUT = _env_float("TX12_SELECT_TIMEOUT", 0.02)
 # Throttle full reads when Node-RED invokes the helper too frequently.
-MIN_REFRESH_INTERVAL = max(
-    0.0, float(os.environ.get("TX12_MIN_REFRESH_INTERVAL", "0.2"))
-)
+MIN_REFRESH_INTERVAL = _env_float("TX12_MIN_REFRESH_INTERVAL", 0.10)
 
 DEBUG = os.environ.get("TX12_DEBUG", "0").lower() in {"1", "true", "yes", "on"}
 
@@ -110,65 +125,70 @@ def read_gamepad() -> Dict[str, List[int]]:
             axes, buttons = _load_previous_state()
             return {"axes": axes, "buttons": buttons}
 
-        axes, buttons, last_read_at = _load_previous_state()
-        now = time.time()
+        try:
+            axes, buttons, last_read_at = _load_previous_state()
+            now = time.time()
 
-        if MIN_REFRESH_INTERVAL > 0 and now - last_read_at < MIN_REFRESH_INTERVAL:
-            _debug(
-                "read_gamepad: skip refresh (%.3fs < %.3fs)"
-                % (now - last_read_at, MIN_REFRESH_INTERVAL)
-            )
-            return {"axes": axes, "buttons": buttons}
+            if MIN_REFRESH_INTERVAL > 0 and now - last_read_at < MIN_REFRESH_INTERVAL:
+                _debug(
+                    "read_gamepad: skip refresh (%.3fs < %.3fs)"
+                    % (now - last_read_at, MIN_REFRESH_INTERVAL)
+                )
+                return {"axes": axes, "buttons": buttons}
 
-        with open(DEVICE, "rb") as jsdev:
-            start_time = time.monotonic()
-            end_time = start_time + READ_WINDOW
-            got_event = False
-            event_count = 0
+            with open(DEVICE, "rb") as jsdev:
+                start_time = time.monotonic()
+                end_time = start_time + READ_WINDOW
+                got_event = False
+                event_count = 0
 
-            _debug(
-                f"read_gamepad: start window={READ_WINDOW}s select={SELECT_TIMEOUT}s "
-                f"extend={EVENT_EXTENSION}s"
-            )
-
-            while True:
-                now = time.monotonic()
-                if now >= end_time:
-                    break
-
-                timeout = min(SELECT_TIMEOUT, max(0.0, end_time - now))
-                r, _, _ = select.select([jsdev], [], [], timeout)
-                if not r:
-                    continue
+                _debug(
+                    f"read_gamepad: start window={READ_WINDOW}s select={SELECT_TIMEOUT}s "
+                    f"extend={EVENT_EXTENSION}s"
+                )
 
                 while True:
-                    data = jsdev.read(JS_EVENT_SIZE)
-                    if not data:
+                    now = time.monotonic()
+                    if now >= end_time:
                         break
 
-                    _time, value, ev_type, number = struct.unpack(JS_EVENT_FORMAT, data)
-                    if ev_type & JS_EVENT_AXIS and number < AXES_COUNT:
-                        axes[number] = value
-                    elif ev_type & JS_EVENT_BUTTON and number < BUTTON_COUNT:
-                        buttons[number] = value
-
-                    # Drain any immediately available events before returning
-                    if select.select([jsdev], [], [], 0)[0]:
+                    timeout = min(SELECT_TIMEOUT, max(0.0, end_time - now))
+                    r, _, _ = select.select([jsdev], [], [], timeout)
+                    if not r:
                         continue
-                    break
 
-                got_event = True
-                event_count += 1
-                if got_event:
-                    end_time = time.monotonic() + EVENT_EXTENSION
+                    while True:
+                        data = jsdev.read(JS_EVENT_SIZE)
+                        if not data:
+                            break
 
-            duration = time.monotonic() - start_time
-            _debug(
-                "read_gamepad: events=%d duration=%.3fs axes=%s buttons=%s"
-                % (event_count, duration, axes, buttons)
-            )
+                        _time, value, ev_type, number = struct.unpack(
+                            JS_EVENT_FORMAT, data
+                        )
+                        if ev_type & JS_EVENT_AXIS and number < AXES_COUNT:
+                            axes[number] = value
+                        elif ev_type & JS_EVENT_BUTTON and number < BUTTON_COUNT:
+                            buttons[number] = value
 
-        _save_state(axes, buttons, time.time())
+                        # Drain any immediately available events before returning
+                        if select.select([jsdev], [], [], 0)[0]:
+                            continue
+                        break
+
+                    got_event = True
+                    event_count += 1
+                    if got_event:
+                        end_time = time.monotonic() + EVENT_EXTENSION
+
+                duration = time.monotonic() - start_time
+                _debug(
+                    "read_gamepad: events=%d duration=%.3fs axes=%s buttons=%s"
+                    % (event_count, duration, axes, buttons)
+                )
+
+            _save_state(axes, buttons, time.time())
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     return {"axes": axes, "buttons": buttons}
 
