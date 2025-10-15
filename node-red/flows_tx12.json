@@ -46,7 +46,7 @@
         "type": "function",
         "z": "flow1",
         "name": "function 4",
-        "func": "// Обробка JSON даних з Python скрипта\nvar data = msg.payload.toString().trim();\n\ntry {\n    // Парсинг JSON\n    var joystickData = JSON.parse(data);\n    \n    if (joystickData.axes && joystickData.buttons) {\n        msg.payload = {\n            axes: joystickData.axes,\n            buttons: joystickData.buttons\n        };\n        return msg;\n    }\n} catch (e) {\n    // Якщо не JSON, ігноруємо\n    node.warn(\"Не можу парсити JSON: \" + data);\n}\n\nreturn null;",
+        "func": "// Обробка JSON даних з Python скрипта\nvar payload = msg.payload;\n\nif (payload === undefined || payload === null) {\n    return null;\n}\n\nif (Buffer.isBuffer(payload)) {\n    payload = payload.toString(\"utf8\");\n}\n\nvar joystickData = null;\n\nif (typeof payload === \"string\") {\n    var data = payload.trim();\n    if (!data) {\n        return null;\n    }\n\n    try {\n        joystickData = JSON.parse(data);\n    } catch (error) {\n        node.warn(\"Не можу парсити JSON: \" + data);\n        return null;\n    }\n} else if (typeof payload === \"object\") {\n    joystickData = payload;\n} else {\n    node.warn(\"Непідтримуваний тип даних: \" + typeof payload);\n    return null;\n}\n\nif (joystickData && joystickData.axes && joystickData.buttons) {\n    msg.payload = {\n        axes: joystickData.axes,\n        buttons: joystickData.buttons\n    };\n    return msg;\n}\n\nreturn null;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
